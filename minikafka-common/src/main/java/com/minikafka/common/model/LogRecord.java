@@ -1,4 +1,4 @@
-package com.minikafka.model;
+package com.minikafka.common.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
