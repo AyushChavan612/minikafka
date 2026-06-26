@@ -1,6 +1,6 @@
-package com.minikafka.storage;
+package com.minikafka.broker.storage;
 
-import com.minikafka.model.LogRecord;
+import com.minikafka.common.model.LogRecord;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;

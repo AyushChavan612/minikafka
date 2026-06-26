@@ -1,4 +1,4 @@
-package com.minikafka.model;
+package com.minikafka.common.model;
 
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
