@@ -8,9 +8,10 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
+import com.minikafka.common.protocol.DataDecoder;
 
 public class MiniKafkaServer {
-    
+
     private final int port;
     private Selector selector;
     private ServerSocketChannel serverSocketChannel;
@@ -52,7 +53,7 @@ public class MiniKafkaServer {
     }
 
     private void acceptClient(SelectionKey key) throws IOException {
-        ServerSocketChannel serverChannel = (ServerSocketChannel)key.channel();
+        ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
         SocketChannel clientChannel = serverChannel.accept();
         clientChannel.configureBlocking(false);
         clientChannel.register(selector, SelectionKey.OP_READ);
@@ -61,7 +62,7 @@ public class MiniKafkaServer {
 
     private void readClientData(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
-        ByteBuffer buffer = ByteBuffer.allocate(256);
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
         int bytesRead = clientChannel.read(buffer);
 
         if (bytesRead == -1) {
@@ -72,9 +73,20 @@ public class MiniKafkaServer {
         }
 
         buffer.flip();
-        byte[] data = new byte[buffer.remaining()];
-        buffer.get(data);
-        System.out.println("Payload: " + new String(data).trim());
+
+        try {
+            DataDecoder.DecodedRecord record = DataDecoder.decode(buffer);
+
+            System.out.println("--- INCOMING EVENT DECODED ---");
+            System.out.println("Topic:   " + record.topic);
+            System.out.println("Key:     " + record.key);
+            System.out.println("Payload: " + record.payload);
+            System.out.println("------------------------------");
+
+        } catch (Exception e) {
+            System.err.println("Failed to decode binary payload: " + e.getMessage());
+            buffer.clear();
+        }
     }
 
     public void stop() throws IOException {
