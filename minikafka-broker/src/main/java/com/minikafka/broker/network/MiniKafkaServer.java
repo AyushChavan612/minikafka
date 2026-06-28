@@ -9,6 +9,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import com.minikafka.common.protocol.DataDecoder;
+import com.minikafka.common.protocol.RequestCodes;
 import com.minikafka.broker.storage.TopicManager;
 
 public class MiniKafkaServer {
@@ -76,19 +77,25 @@ public class MiniKafkaServer {
         }
 
         buffer.flip();
-
         try {
-            DataDecoder.DecodedRecord record = DataDecoder.decode(buffer);
+            short apiKey = buffer.getShort();
 
-            System.out.println("--- INCOMING EVENT DECODED ---");
-            System.out.println("Topic:   " + record.topic);
-            System.out.println("Key:     " + record.key);
-            System.out.println("Payload: " + record.payload);
-            System.out.println("------------------------------");
-            topicManager.routeRecord(record.topic, record.key, record.payload);
+            if (apiKey == RequestCodes.PRODUCE) {
+                DataDecoder.DecodedRecord record = DataDecoder.decode(buffer);
+
+                System.out.println("--- INCOMING PRODUCE REQUEST ---");
+                System.out.println("Topic: " + record.topic);
+
+                topicManager.routeRecord(record.topic, record.key, record.payload);
+
+            } else if (apiKey == RequestCodes.FETCH) {
+                System.out.println("--- INCOMING FETCH REQUEST ---");
+            } else {
+                System.err.println("Unknown API Key: " + apiKey);
+            }
 
         } catch (Exception e) {
-            System.err.println("Failed to decode binary payload: " + e.getMessage());
+            System.err.println("Failed to process request: " + e.getMessage());
             buffer.clear();
         }
     }
