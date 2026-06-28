@@ -17,19 +17,20 @@ public class Partition {
     public Partition(String topic, int partitionId) {
         this.topic = topic;
         this.partitionId = partitionId;
-        this.currentOffset = new AtomicLong(0); 
-        
+        this.currentOffset = new AtomicLong(0);
+
         try {
             Path logDirectory = Paths.get("/home/pacforever/Documents/minikafka-logs");
             if (!Files.exists(logDirectory)) {
                 Files.createDirectories(logDirectory);
             }
-            
-            Path partitionPath = logDirectory.resolve(topic + "-" + partitionId + ".log");
 
-            this.writer = new PartitionWriter(partitionPath);
+            Path partitionPath = logDirectory.resolve(topic + "-" + partitionId + ".log");
+            Path indexPath = logDirectory.resolve(topic + "-" + partitionId + ".index"); 
+
+            this.writer = new PartitionWriter(partitionPath, indexPath);
             System.out.println("--> Initialized physical storage at: " + partitionPath);
-            
+
         } catch (IOException e) {
             throw new RuntimeException("Failed to initialize PartitionWriter for topic: " + topic, e);
         }
@@ -38,23 +39,22 @@ public class Partition {
     public void append(String key, String payload) {
         long offset = currentOffset.getAndIncrement();
         long timestamp = System.currentTimeMillis();
-        
+
         // Convert the String payload to byte[] as expected by your LogRecord
         byte[] payloadBytes = payload != null ? payload.getBytes() : new byte[0];
 
         LogRecord record = new LogRecord(
-            offset, 
-            timestamp, 
-            topic, 
-            partitionId, 
-            key, 
-            payloadBytes
-        );
-        
+                offset,
+                timestamp,
+                topic,
+                partitionId,
+                key,
+                payloadBytes);
+
         try {
             // 5. Write to the physical disk!
             writer.append(record);
-            System.out.printf("[SAVED TO DISK] Topic: %s | Partition: %d | Offset: %d%n", 
+            System.out.printf("[SAVED TO DISK] Topic: %s | Partition: %d | Offset: %d%n",
                     topic, partitionId, offset);
         } catch (IOException e) {
             System.err.println("CRITICAL: Failed to write record to disk - " + e.getMessage());

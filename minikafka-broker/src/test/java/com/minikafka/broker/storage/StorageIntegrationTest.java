@@ -15,6 +15,7 @@ class StorageIntegrationTest {
     void writerAndReaderMustSerializeAndDeserializeCorrectly() throws IOException {
         String userHome = System.getProperty("user.home");
         Path tempLogFile = java.nio.file.Paths.get(userHome, "minikafka-test-partition.log");
+        Path tempParitionIndexFile = java.nio.file.Paths.get(userHome, "minikafka-test-partitionIndex.log");
 
         String topic = "system-events";
         String key = "event-001";
@@ -25,7 +26,7 @@ class StorageIntegrationTest {
 
         LogRecord originalRecord = new LogRecord(offset, timestamp, topic, partition, key, payload);
 
-        PartitionWriter writer = new PartitionWriter(tempLogFile);
+        PartitionWriter writer = new PartitionWriter(tempLogFile,tempParitionIndexFile);
         writer.append(originalRecord);
         writer.close();
 

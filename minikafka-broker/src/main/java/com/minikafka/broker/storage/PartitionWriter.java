@@ -10,16 +10,25 @@ import java.nio.file.StandardOpenOption;
 public class PartitionWriter {
     
     private final FileChannel fileChannel;
+    private final PartitionIndex index;
 
-    public PartitionWriter(Path partitionPath) throws IOException {
+    public PartitionWriter(Path partitionPath, Path indexPath) throws IOException {
         this.fileChannel = FileChannel.open(partitionPath, 
             StandardOpenOption.CREATE, 
             StandardOpenOption.APPEND, 
-            StandardOpenOption.WRITE);
+            StandardOpenOption.WRITE
+        ); 
+            
+        this.index = new PartitionIndex(indexPath);
     }
 
     public void append(LogRecord record) throws IOException {
         System.out.println("Data recived on partitionReader side : " + record);
+        
+        long currentPhysicalPosition = fileChannel.size();
+
+        index.append(record.getOffset(), currentPhysicalPosition);
+
         byte[] topicBytes = record.getTopic() != null ? record.getTopic().getBytes() : new byte[0];
         byte[] keyBytes = record.getKey() != null ? record.getKey().getBytes() : new byte[0];
         byte[] payloadBytes = record.getPayload() != null ? record.getPayload() : new byte[0];
@@ -56,8 +65,19 @@ public class PartitionWriter {
     }
 
     public void close() throws IOException {
+        if (index != null) {
+            index.close();
+        }
         if (fileChannel != null && fileChannel.isOpen()) {
             fileChannel.close();
         }
+    }
+    
+    public PartitionIndex getIndex() { 
+        return index; 
+    }
+    
+    public FileChannel getFileChannel() { 
+        return fileChannel; 
     }
 }
