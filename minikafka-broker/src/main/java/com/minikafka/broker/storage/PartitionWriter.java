@@ -19,6 +19,7 @@ public class PartitionWriter {
     }
 
     public void append(LogRecord record) throws IOException {
+        System.out.println("Data recived on partitionReader side : " + record);
         byte[] topicBytes = record.getTopic() != null ? record.getTopic().getBytes() : new byte[0];
         byte[] keyBytes = record.getKey() != null ? record.getKey().getBytes() : new byte[0];
         byte[] payloadBytes = record.getPayload() != null ? record.getPayload() : new byte[0];

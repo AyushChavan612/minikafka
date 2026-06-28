@@ -9,6 +9,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import com.minikafka.common.protocol.DataDecoder;
+import com.minikafka.broker.storage.TopicManager;
 
 public class MiniKafkaServer {
 
@@ -16,9 +17,11 @@ public class MiniKafkaServer {
     private Selector selector;
     private ServerSocketChannel serverSocketChannel;
     private boolean isRunning;
+    private final TopicManager topicManager;
 
     public MiniKafkaServer(int port) {
         this.port = port;
+        this.topicManager = new TopicManager(3);
     }
 
     public void start() throws IOException {
@@ -82,6 +85,7 @@ public class MiniKafkaServer {
             System.out.println("Key:     " + record.key);
             System.out.println("Payload: " + record.payload);
             System.out.println("------------------------------");
+            topicManager.routeRecord(record.topic, record.key, record.payload);
 
         } catch (Exception e) {
             System.err.println("Failed to decode binary payload: " + e.getMessage());
