@@ -10,7 +10,7 @@ import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import com.minikafka.common.protocol.DataDecoder;
 import com.minikafka.common.protocol.RequestCodes;
-import com.minikafka.broker.storage.DefaultPartitioner;
+import com.minikafka.broker.consumer.GroupCoordinator;
 import com.minikafka.broker.storage.TopicManager;
 import com.minikafka.common.model.LogRecord;
 
@@ -21,10 +21,12 @@ public class MiniKafkaServer {
     private ServerSocketChannel serverSocketChannel;
     private boolean isRunning;
     private final TopicManager topicManager;
+    private final GroupCoordinator groupCoordinator;
 
     public MiniKafkaServer(int port) {
         this.port = port;
         this.topicManager = new TopicManager(3);
+        this.groupCoordinator = new GroupCoordinator(); // Already initialized here!
     }
 
     public void start() throws IOException {
@@ -105,7 +107,6 @@ public class MiniKafkaServer {
                 System.out
                         .println("Requested Topic: " + topic + " | Partition: " + partitionId + " | Offset: " + offset);
 
-                // No more hardcoding!
                 LogRecord record = topicManager.fetchRecord(topic, partitionId, offset);
 
                 ByteBuffer responseBuffer;
@@ -122,8 +123,60 @@ public class MiniKafkaServer {
 
                 responseBuffer.flip();
                 while (responseBuffer.hasRemaining()) {
-                    clientChannel.write(responseBuffer); // Assuming 'clientChannel' is your SocketChannel variable
+                    clientChannel.write(responseBuffer);
                 }
+
+            } else if (apiKey == RequestCodes.FETCH_OFFSET) {
+                // 1. Read the request: GroupID, Topic, PartitionID
+                int groupIdLen = buffer.getInt();
+                byte[] groupIdBytes = new byte[groupIdLen];
+                buffer.get(groupIdBytes);
+                String groupId = new String(groupIdBytes);
+
+                int topicLen = buffer.getInt();
+                byte[] topicBytes = new byte[topicLen];
+                buffer.get(topicBytes);
+                String topic = new String(topicBytes);
+
+                int partitionId = buffer.getInt();
+
+                // 2. Look it up
+                long currentOffset = groupCoordinator.fetchOffset(groupId, topic, partitionId);
+
+                // 3. Send it back (8 bytes for a long)
+                ByteBuffer responseBuffer = ByteBuffer.allocate(8);
+                responseBuffer.putLong(currentOffset);
+                responseBuffer.flip();
+                while (responseBuffer.hasRemaining()) {
+                    clientChannel.write(responseBuffer);
+                }
+
+            } else if (apiKey == RequestCodes.COMMIT_OFFSET) {
+                // 1. Read the request: GroupID, Topic, PartitionID, Offset
+                int groupIdLen = buffer.getInt();
+                byte[] groupIdBytes = new byte[groupIdLen];
+                buffer.get(groupIdBytes);
+                String groupId = new String(groupIdBytes);
+
+                int topicLen = buffer.getInt();
+                byte[] topicBytes = new byte[topicLen];
+                buffer.get(topicBytes);
+                String topic = new String(topicBytes);
+
+                int partitionId = buffer.getInt();
+                long offset = buffer.getLong();
+
+                // 2. Save it
+                groupCoordinator.commitOffset(groupId, topic, partitionId, offset);
+
+                // 3. Send a simple 1-byte success acknowledgment
+                ByteBuffer responseBuffer = ByteBuffer.allocate(1);
+                responseBuffer.put((byte) 1);
+                responseBuffer.flip();
+                while (responseBuffer.hasRemaining()) {
+                    clientChannel.write(responseBuffer);
+                }
+
             } else {
                 System.err.println("Unknown API Key: " + apiKey);
             }
