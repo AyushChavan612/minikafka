@@ -13,6 +13,7 @@ public class Partition {
     private final int partitionId;
     private final AtomicLong currentOffset;
     private final PartitionWriter writer;
+    private final PartitionReader reader; 
 
     public Partition(String topic, int partitionId) {
         this.topic = topic;
@@ -29,10 +30,13 @@ public class Partition {
             Path indexPath = logDirectory.resolve(topic + "-" + partitionId + ".index"); 
 
             this.writer = new PartitionWriter(partitionPath, indexPath);
+            
+            this.reader = new PartitionReader(partitionPath); 
+            
             System.out.println("--> Initialized physical storage at: " + partitionPath);
 
         } catch (IOException e) {
-            throw new RuntimeException("Failed to initialize PartitionWriter for topic: " + topic, e);
+            throw new RuntimeException("Failed to initialize storage for topic: " + topic, e);
         }
     }
 
@@ -40,7 +44,6 @@ public class Partition {
         long offset = currentOffset.getAndIncrement();
         long timestamp = System.currentTimeMillis();
 
-        // Convert the String payload to byte[] as expected by your LogRecord
         byte[] payloadBytes = payload != null ? payload.getBytes() : new byte[0];
 
         LogRecord record = new LogRecord(
@@ -52,12 +55,26 @@ public class Partition {
                 payloadBytes);
 
         try {
-            // 5. Write to the physical disk!
             writer.append(record);
             System.out.printf("[SAVED TO DISK] Topic: %s | Partition: %d | Offset: %d%n",
                     topic, partitionId, offset);
         } catch (IOException e) {
             System.err.println("CRITICAL: Failed to write record to disk - " + e.getMessage());
+        }
+    }
+
+    public LogRecord fetchRecord(long targetOffset) {
+        try {
+            long bytePosition = writer.getIndex().lookupPosition(targetOffset);
+            if (bytePosition == -1) {
+                System.out.println("Offset " + targetOffset + " not found in index.");
+                return null;
+            }
+            return reader.readRecordAt(bytePosition);
+
+        } catch (IOException e) {
+            System.err.println("Failed to fetch record at offset " + targetOffset + ": " + e.getMessage());
+            return null;
         }
     }
 }
