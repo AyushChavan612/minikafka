@@ -5,6 +5,8 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
+import com.minikafka.common.protocol.RequestCodes;
+
 public class MiniKafkaProducer {
     
     private final SocketChannel socketChannel;
@@ -17,9 +19,10 @@ public class MiniKafkaProducer {
         byte[] topicBytes = topic != null ? topic.getBytes() : new byte[0];
         byte[] keyBytes = key != null ? key.getBytes() : new byte[0];
 
-        int totalSize = 12 + topicBytes.length + keyBytes.length + payload.length;
+        int totalSize = 14 + topicBytes.length + keyBytes.length + payload.length;
         ByteBuffer buffer = ByteBuffer.allocate(totalSize);
-
+        
+        buffer.putShort(RequestCodes.PRODUCE);
         buffer.putInt(topicBytes.length);
         if (topicBytes.length > 0) buffer.put(topicBytes);
 

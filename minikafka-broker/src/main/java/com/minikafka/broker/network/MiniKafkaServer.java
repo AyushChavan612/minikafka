@@ -9,6 +9,10 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import com.minikafka.common.protocol.DataDecoder;
+import com.minikafka.common.protocol.RequestCodes;
+import com.minikafka.broker.storage.DefaultPartitioner;
+import com.minikafka.broker.storage.TopicManager;
+import com.minikafka.common.model.LogRecord;
 
 public class MiniKafkaServer {
 
@@ -16,9 +20,11 @@ public class MiniKafkaServer {
     private Selector selector;
     private ServerSocketChannel serverSocketChannel;
     private boolean isRunning;
+    private final TopicManager topicManager;
 
     public MiniKafkaServer(int port) {
         this.port = port;
+        this.topicManager = new TopicManager(3);
     }
 
     public void start() throws IOException {
@@ -73,18 +79,58 @@ public class MiniKafkaServer {
         }
 
         buffer.flip();
-
         try {
-            DataDecoder.DecodedRecord record = DataDecoder.decode(buffer);
+            short apiKey = buffer.getShort();
 
-            System.out.println("--- INCOMING EVENT DECODED ---");
-            System.out.println("Topic:   " + record.topic);
-            System.out.println("Key:     " + record.key);
-            System.out.println("Payload: " + record.payload);
-            System.out.println("------------------------------");
+            if (apiKey == RequestCodes.PRODUCE) {
+                DataDecoder.DecodedRecord record = DataDecoder.decode(buffer);
+
+                System.out.println("--- INCOMING PRODUCE REQUEST ---");
+                System.out.println("Topic: " + record.topic);
+
+                topicManager.routeRecord(record.topic, record.key, record.payload);
+
+            } else if (apiKey == RequestCodes.FETCH) {
+                System.out.println("--- INCOMING FETCH REQUEST ---");
+
+                int topicLen = buffer.getInt();
+                byte[] topicBytes = new byte[topicLen];
+                buffer.get(topicBytes);
+                String topic = new String(topicBytes);
+
+                // Read the partition ID dynamically!
+                int partitionId = buffer.getInt();
+                long offset = buffer.getLong();
+
+                System.out
+                        .println("Requested Topic: " + topic + " | Partition: " + partitionId + " | Offset: " + offset);
+
+                // No more hardcoding!
+                LogRecord record = topicManager.fetchRecord(topic, partitionId, offset);
+
+                ByteBuffer responseBuffer;
+                if (record != null) {
+                    byte[] payload = record.getPayload();
+                    responseBuffer = ByteBuffer.allocate(1 + 4 + payload.length);
+                    responseBuffer.put((byte) 1); // Status 1 = SUCCESS
+                    responseBuffer.putInt(payload.length);
+                    responseBuffer.put(payload);
+                } else {
+                    responseBuffer = ByteBuffer.allocate(1);
+                    responseBuffer.put((byte) 0); // Status 0 = NOT FOUND
+                }
+
+                responseBuffer.flip();
+                while (responseBuffer.hasRemaining()) {
+                    clientChannel.write(responseBuffer); // Assuming 'clientChannel' is your SocketChannel variable
+                }
+            } else {
+                System.err.println("Unknown API Key: " + apiKey);
+            }
 
         } catch (Exception e) {
-            System.err.println("Failed to decode binary payload: " + e.getMessage());
+            System.err.println("Failed to process request: " + e.getMessage());
+            e.printStackTrace(); 
             buffer.clear();
         }
     }
