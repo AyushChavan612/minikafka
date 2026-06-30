@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import com.minikafka.common.model.LogRecord;
+import com.minikafka.common.utils.DefaultPartitioner;
 
 public class TopicManager {
 
