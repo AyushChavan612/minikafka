@@ -127,6 +127,31 @@ public class HighLevelNetworkClient {
         }
     }
 
+    public int joinGroup(String topic, String groupId, String consumerId) throws IOException {
+        byte[] topicBytes = topic.getBytes();
+        byte[] groupBytes = groupId.getBytes();
+        byte[] consumerBytes = consumerId.getBytes();
+
+        ByteBuffer request = ByteBuffer.allocate(14 + topicBytes.length + groupBytes.length + consumerBytes.length);
+        request.putShort((short) 5); // JOIN_GROUP API
+        request.putInt(topicBytes.length);
+        request.put(topicBytes);
+        request.putInt(groupBytes.length);
+        request.put(groupBytes);
+        request.putInt(consumerBytes.length);
+        request.put(consumerBytes);
+
+        request.flip();
+        while (request.hasRemaining()) {
+            socketChannel.write(request);
+        }
+
+        ByteBuffer response = ByteBuffer.allocate(4);
+        socketChannel.read(response);
+        response.flip();
+        return response.getInt();
+    }
+
     public void close() throws IOException {
         if (socketChannel != null && socketChannel.isOpen()) {
             socketChannel.close();

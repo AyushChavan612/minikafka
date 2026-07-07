@@ -12,32 +12,34 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class GroupCoordinator {
-    
+
     // Structure: GroupID -> (Topic -> (PartitionID -> Offset))
     private final Map<String, Map<String, Map<Integer, Long>>> groupOffsets;
+    private final Map<String, Map<String, java.util.List<String>>> activeConsumers;
     private final Path offsetLogPath;
     private FileChannel appendChannel;
 
     public GroupCoordinator() {
         this.groupOffsets = new ConcurrentHashMap<>();
-        
+        this.activeConsumers = new ConcurrentHashMap<>();
+
         // This is saved in your HDD experimental workspace alongside your other logs
         this.offsetLogPath = Paths.get("/home/pacforever/Documents/minikafka-logs/__consumer_offsets.txt");
-        
+
         try {
             if (!Files.exists(offsetLogPath)) {
                 Files.createDirectories(offsetLogPath.getParent());
                 Files.createFile(offsetLogPath);
             }
-            
+
             // 1. On startup, read sequentially to rebuild RAM state
             loadOffsetsFromDisk();
-            
+
             // 2. Open a fast NIO FileChannel for appending new commits
-            this.appendChannel = FileChannel.open(offsetLogPath, 
-                StandardOpenOption.WRITE, 
-                StandardOpenOption.APPEND);
-                
+            this.appendChannel = FileChannel.open(offsetLogPath,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.APPEND);
+
         } catch (IOException e) {
             System.err.println("CRITICAL: Failed to initialize offset storage: " + e.getMessage());
         }
@@ -45,7 +47,8 @@ public class GroupCoordinator {
 
     /**
      * Reads the file on Broker startup to rebuild the in-memory map.
-     * Blocking I/O (BufferedReader) is perfectly safe here because the server is booting up
+     * Blocking I/O (BufferedReader) is perfectly safe here because the server is
+     * booting up
      * and hasn't started accepting network connections yet.
      */
     private void loadOffsetsFromDisk() {
@@ -58,11 +61,11 @@ public class GroupCoordinator {
                     String topic = parts[1];
                     int partitionId = Integer.parseInt(parts[2]);
                     long offset = Long.parseLong(parts[3]);
-                    
+
                     groupOffsets
-                        .computeIfAbsent(groupId, k -> new ConcurrentHashMap<>())
-                        .computeIfAbsent(topic, k -> new ConcurrentHashMap<>())
-                        .put(partitionId, offset);
+                            .computeIfAbsent(groupId, k -> new ConcurrentHashMap<>())
+                            .computeIfAbsent(topic, k -> new ConcurrentHashMap<>())
+                            .put(partitionId, offset);
                 }
             }
             System.out.println("[COORDINATOR] Successfully loaded previous consumer offsets from disk.");
@@ -72,26 +75,27 @@ public class GroupCoordinator {
     }
 
     /**
-     * Saves the offset to RAM, and appends it to the disk log using non-blocking NIO.
+     * Saves the offset to RAM, and appends it to the disk log using non-blocking
+     * NIO.
      */
     public void commitOffset(String groupId, String topic, int partitionId, long offset) {
         // 1. Save to RAM (Instant)
         groupOffsets
-            .computeIfAbsent(groupId, k -> new ConcurrentHashMap<>())
-            .computeIfAbsent(topic, k -> new ConcurrentHashMap<>())
-            .put(partitionId, offset);
-            
+                .computeIfAbsent(groupId, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(topic, k -> new ConcurrentHashMap<>())
+                .put(partitionId, offset);
+
         // 2. Save to Disk using NIO ByteBuffer (Zero-Copy mechanics)
         try {
             String record = String.format("%s,%s,%d,%d\n", groupId, topic, partitionId, offset);
             ByteBuffer buffer = ByteBuffer.wrap(record.getBytes());
-            
+
             while (buffer.hasRemaining()) {
                 appendChannel.write(buffer);
             }
-            
-            System.out.printf("[COORDINATOR] Group '%s' committed Offset %d for Topic '%s' Partition %d%n", 
-                groupId, offset, topic, partitionId);
+
+            System.out.printf("[COORDINATOR] Group '%s' committed Offset %d for Topic '%s' Partition %d%n",
+                    groupId, offset, topic, partitionId);
         } catch (IOException e) {
             System.err.println("CRITICAL: Failed to persist offset to disk: " + e.getMessage());
         }
@@ -108,9 +112,38 @@ public class GroupCoordinator {
                 return partitionsForTopic.getOrDefault(partitionId, 0L);
             }
         }
-        return 0L; 
+        return 0L;
     }
-    
+
+    /**
+     * Rebalance Protocol: Registers a consumer and assigns it a partition.
+     */
+    public synchronized int registerConsumer(String groupId, String topic, String consumerId, int numPartitions) {
+        // 1. Get or create the list of active consumers for this topic and group
+        java.util.List<String> members = activeConsumers
+                .computeIfAbsent(topic, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(groupId, k -> new java.util.concurrent.CopyOnWriteArrayList<>());
+
+        // 2. Add the consumer if it's not already in the list
+        if (!members.contains(consumerId)) {
+            members.add(consumerId);
+        }
+
+        // 3. Find this consumer's index in the group
+        int memberIndex = members.indexOf(consumerId);
+
+        // 4. Assign partition (Round-Robin assignment)
+        // If 3 partitions exist: 1st consumer gets 0, 2nd gets 1, 3rd gets 2, 4th gets
+        // 0...
+        int assignedPartition = memberIndex % numPartitions;
+
+        System.out.printf(
+                "[COORDINATOR] Consumer '%s' joined Group '%s' for Topic '%s'. Assigned Partition: %d (Group Size: %d)%n",
+                consumerId, groupId, topic, assignedPartition, members.size());
+
+        return assignedPartition;
+    }
+
     public void close() {
         try {
             if (appendChannel != null && appendChannel.isOpen()) {

@@ -1,23 +1,29 @@
 package com.minikafka.client;
 
 import java.io.IOException;
+import java.util.UUID; // Added for unique consumer IDs
 
 public class HighLevelConsumer {
     private final String groupId;
     private final String topic;
-    private final int partitionId; // Handled internally now!
+    private final String consumerId; // Added to track this specific instance
+    private final int partitionId; 
     private final HighLevelNetworkClient networkClient;
     private long currentOffset = -1;
 
-    // The user ONLY passes the Group ID and Topic now!
     public HighLevelConsumer(String host, int port, String groupId, String topic) throws IOException {
         this.groupId = groupId;
         this.topic = topic;
 
-        this.partitionId = (groupId.hashCode() & 0x7fffffff) % 3;
+        // 1. Generate a unique ID so the Broker knows exactly who this is
+        this.consumerId = UUID.randomUUID().toString();
         
         this.networkClient = new HighLevelNetworkClient(host, port);
-        System.out.println("Consumer Group '" + groupId + "' was automatically assigned to Partition " + partitionId);
+        
+        // 2. REAL KAFKA REBALANCE: Ask the broker for a partition instead of guessing!
+        this.partitionId = networkClient.joinGroup(topic, groupId, consumerId);
+        
+        System.out.println("[CLIENT] Successfully joined group. Broker assigned Partition: " + partitionId);
     }
 
     /**
@@ -34,7 +40,6 @@ public class HighLevelConsumer {
         if (payload != null) {
             long nextOffset = currentOffset + 1;
             
-            // Try-Catch is handled inside networkClient. It will throw IOException if Broker returns 0.
             networkClient.commitOffset(groupId, topic, partitionId, nextOffset);
             
             currentOffset = nextOffset;
