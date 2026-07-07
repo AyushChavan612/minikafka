@@ -154,7 +154,14 @@ public class HighLevelNetworkClient {
 
     public void close() throws IOException {
         if (socketChannel != null && socketChannel.isOpen()) {
-            socketChannel.close();
+            try {
+                socketChannel.shutdownOutput();
+                Thread.sleep(50);
+            } catch (Exception e) {
+                System.err.println("Error while shutting down output: " + e.getMessage());
+            } finally {
+                socketChannel.close();
+            }
         }
     }
 }

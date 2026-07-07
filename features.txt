@@ -16,31 +16,3 @@ Message Batching: Right now, your fetch returns exactly one record. Real Kafka f
 
 Data Retention Policies: A background thread (a "Janitor") that automatically deletes old .log and .index files after they reach a certain size or age (like 7 days).
 
-
-Point 1: The Hash Function
-Your Plan: Create a good hash function for uniform distribution and deterministic hashing.
-The Reality & Improvements:
-
-Spot on. You cannot rely on Java's default .hashCode() because it is not guaranteed to be consistent across different JVM executions or versions.
-
-How to impress engineers: Implement MurmurHash2 or MurmurHash3. This is exactly what real Kafka uses in its DefaultPartitioner. It is extremely fast for byte arrays and provides excellent uniform distribution to prevent "hot partitions" (where one partition gets all the data and overloads a specific disk).
-
-Edge Case to Handle: Hash functions can return negative integers. You must use a bitwise AND mask to force it to be positive before applying your modulo operator: (MurmurHash.hash(keyBytes) & 0x7fffffff) % numPartitions.
-
-Point 2: Producer Routing (Key vs. Round-Robin)
-Your Plan: Key present = Hash to partition. No key = Round-robin to different partitions.
-The Reality & Improvements:
-
-Perfect base logic. This is exactly how Kafka operated for years.
-
-How to impress engineers: Implement a Sticky Partitioner. In modern Kafka, strict round-robin for keyless messages is actually bad for network performance because it forces the producer to send tiny network packets to every single partition constantly. Instead, a Sticky Partitioner picks one random partition, "sticks" to it for a few milliseconds to batch a bunch of messages together, sends a single large binary payload, and then "sticks" to a new random partition. This massively improves throughput.
-
-Point 3: Consumer Polling & Assignment
-Your Plan: Register consumer, assign partition, implement polling. The broker checks if offset+1 exists, fetches data, returns data, and commits the offset.
-The Reality & Improvements:
-
-Consumer Registration (The Rebalance Protocol): Building a dynamic registry where the Broker assigns partitions to consumers based on who is alive is the hardest part of Kafka. If you build a GroupCoordinator that handles "Heartbeats" (consumers pinging the broker every 3 seconds) and automatically shifts partitions if a consumer dies, any systems engineer reviewing your code will be incredibly impressed.
-
-CORRECTION - Do not let the Broker auto-commit: Your plan states the broker will fetch the data, return it, and commit the offset. You must separate these. If the broker sends the data over the network and instantly commits offset + 1 in its log, what happens if the consumer's network drops before the bytes arrive? The broker thinks the data was processed, but the consumer never got it. The data is permanently lost.
-
-The Fix: Keep the architecture we established. The Consumer loops a FETCH request. If data exists, the Broker sends it. The Consumer does its work, and only then does the Consumer send a COMMIT request to the Broker. This guarantees "At-Least-Once" delivery.

@@ -135,7 +135,7 @@ public class GroupCoordinator {
         // 4. Assign partition (Round-Robin assignment)
         // If 3 partitions exist: 1st consumer gets 0, 2nd gets 1, 3rd gets 2, 4th gets
         // 0...
-        int assignedPartition = memberIndex % numPartitions;
+        int assignedPartition = (memberIndex % numPartitions);
 
         System.out.printf(
                 "[COORDINATOR] Consumer '%s' joined Group '%s' for Topic '%s'. Assigned Partition: %d (Group Size: %d)%n",

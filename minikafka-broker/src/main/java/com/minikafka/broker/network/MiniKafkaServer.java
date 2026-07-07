@@ -16,83 +16,110 @@ import com.minikafka.common.model.LogRecord;
 
 public class MiniKafkaServer {
 
-  private final int port;
-  private Selector selector;
-  private ServerSocketChannel serverSocketChannel;
-  private boolean isRunning;
-  private final TopicManager topicManager;
-  private final GroupCoordinator groupCoordinator;
+    private final int port;
+    private Selector selector;
+    private ServerSocketChannel serverSocketChannel;
+    private boolean isRunning;
+    private final TopicManager topicManager;
+    private final GroupCoordinator groupCoordinator;
 
-  public MiniKafkaServer(int port) {
-    this.port = port;
-    this.topicManager = new TopicManager(3);
-    this.groupCoordinator = new GroupCoordinator(); // Already initialized here!
-  }
-
-  public void start() throws IOException {
-    selector = Selector.open();
-    serverSocketChannel = ServerSocketChannel.open();
-    serverSocketChannel.bind(new InetSocketAddress(port));
-    serverSocketChannel.configureBlocking(false);
-    serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
-    isRunning = true;
-
-    System.out.println("Broker listening on port " + port);
-
-    while (isRunning) {
-      selector.select();
-      Iterator<SelectionKey> keys = selector.selectedKeys().iterator();
-
-      while (keys.hasNext()) {
-        SelectionKey key = keys.next();
-        keys.remove();
-
-        if (!key.isValid()) {
-          continue;
-        }
-
-        if (key.isAcceptable()) {
-          acceptClient(key);
-        } else if (key.isReadable()) {
-          readClientData(key);
-        }
-      }
-    }
-  }
-
-  private void acceptClient(SelectionKey key) throws IOException {
-    ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
-    SocketChannel clientChannel = serverChannel.accept();
-    clientChannel.configureBlocking(false);
-    clientChannel.register(selector, SelectionKey.OP_READ);
-    System.out.println("Connected: " + clientChannel.getRemoteAddress());
-  }
-
-  private void readClientData(SelectionKey key) throws IOException {
-    SocketChannel clientChannel = (SocketChannel) key.channel();
-    ByteBuffer buffer = ByteBuffer.allocate(1024);
-    int bytesRead = clientChannel.read(buffer);
-
-    if (bytesRead == -1) {
-      System.out.println("Disconnected: " + clientChannel.getRemoteAddress());
-      clientChannel.close();
-      key.cancel();
-      return;
+    public MiniKafkaServer(int port) {
+        this.port = port;
+        this.topicManager = new TopicManager(3);
+        this.groupCoordinator = new GroupCoordinator();
     }
 
-    buffer.flip();
-    try {
-      short apiKey = buffer.getShort();
+    public void start() throws IOException {
+        selector = Selector.open();
+        serverSocketChannel = ServerSocketChannel.open();
+        serverSocketChannel.bind(new InetSocketAddress(port));
+        serverSocketChannel.configureBlocking(false);
+        serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+        isRunning = true;
 
-      if (apiKey == RequestCodes.PRODUCE) {
+        System.out.println("Broker listening on port " + port);
+
+        while (isRunning) {
+            selector.select();
+            Iterator<SelectionKey> keys = selector.selectedKeys().iterator();
+
+            while (keys.hasNext()) {
+                SelectionKey key = keys.next();
+                keys.remove();
+
+                if (!key.isValid()) {
+                    continue;
+                }
+
+                if (key.isAcceptable()) {
+                    acceptClient(key);
+                } else if (key.isReadable()) {
+                    readClientData(key);
+                }
+            }
+        }
+    }
+
+    private void acceptClient(SelectionKey key) throws IOException {
+        ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
+        SocketChannel clientChannel = serverChannel.accept();
+        clientChannel.configureBlocking(false);
+        clientChannel.register(selector, SelectionKey.OP_READ);
+        System.out.println("Connected: " + clientChannel.getRemoteAddress());
+    }
+
+    private void readClientData(SelectionKey key) throws IOException {
+        SocketChannel clientChannel = (SocketChannel) key.channel();
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+        int bytesRead = clientChannel.read(buffer);
+
+        if (bytesRead == -1) {
+            System.out.println("Disconnected: " + clientChannel.getRemoteAddress());
+            clientChannel.close();
+            key.cancel();
+            return;
+        }
+
+        buffer.flip();
+        try {
+            short apiKey = buffer.getShort();
+            switch (apiKey) {
+                case RequestCodes.PRODUCE:
+                    handleProduceRequest(buffer);
+                    break;
+                case RequestCodes.FETCH:
+                    handleFetchRequest(buffer, clientChannel);
+                    break;
+                case RequestCodes.FETCH_OFFSET:
+                    handleFetchOffsetRequest(buffer, clientChannel);
+                    break;
+                case RequestCodes.COMMIT_OFFSET:
+                    handleCommitOffsetRequest(buffer, clientChannel);
+                    break;
+                case RequestCodes.JOIN_GROUP:
+                    handleJoinGroupRequest(buffer, clientChannel);
+                    break;
+                default:
+                    System.err.println("Unknown API Key: " + apiKey);
+            }
+
+        } catch (Exception e) {
+            System.err.println("Failed to process request: " + e.getMessage());
+            e.printStackTrace();
+            buffer.clear();
+        }
+    }
+
+    // ===================== API REQUEST HANDLERS ==========================
+
+    private void handleProduceRequest(ByteBuffer buffer) throws IOException {
         DataDecoder.DecodedRecord record = DataDecoder.decode(buffer);
-
         System.out.println("--- INCOMING PRODUCE REQUEST ---");
         System.out.println("Topic: " + record.topic);
-
         topicManager.routeRecord(record.topic, record.key, record.payload);
+    }
 
-      } else if (apiKey == RequestCodes.FETCH) {
+    private void handleFetchRequest(ByteBuffer buffer, SocketChannel clientChannel) throws IOException {
         System.out.println("--- INCOMING FETCH REQUEST ---");
 
         int topicLen = buffer.getInt();
@@ -100,34 +127,32 @@ public class MiniKafkaServer {
         buffer.get(topicBytes);
         String topic = new String(topicBytes);
 
-        // Read the partition ID dynamically!
         int partitionId = buffer.getInt();
         long offset = buffer.getLong();
 
-        System.out
-            .println("Requested Topic: " + topic + " | Partition: " + partitionId + " | Offset: " + offset);
+        System.out.println("Requested Topic: " + topic + " | Partition: " + partitionId + " | Offset: " + offset);
 
         LogRecord record = topicManager.fetchRecord(topic, partitionId, offset);
 
         ByteBuffer responseBuffer;
         if (record != null) {
-          byte[] payload = record.getPayload();
-          responseBuffer = ByteBuffer.allocate(1 + 4 + payload.length);
-          responseBuffer.put((byte) 1); // Status 1 = SUCCESS
-          responseBuffer.putInt(payload.length);
-          responseBuffer.put(payload);
+            byte[] payload = record.getPayload();
+            responseBuffer = ByteBuffer.allocate(1 + 4 + payload.length);
+            responseBuffer.put((byte) 1); // Status 1 = SUCCESS
+            responseBuffer.putInt(payload.length);
+            responseBuffer.put(payload);
         } else {
-          responseBuffer = ByteBuffer.allocate(1);
-          responseBuffer.put((byte) 0); // Status 0 = NOT FOUND
+            responseBuffer = ByteBuffer.allocate(1);
+            responseBuffer.put((byte) 0); // Status 0 = NOT FOUND
         }
 
         responseBuffer.flip();
         while (responseBuffer.hasRemaining()) {
-          clientChannel.write(responseBuffer);
+            clientChannel.write(responseBuffer);
         }
+    }
 
-      } else if (apiKey == RequestCodes.FETCH_OFFSET) {
-        // 1. Read the request: GroupID, Topic, PartitionID
+    private void handleFetchOffsetRequest(ByteBuffer buffer, SocketChannel clientChannel) throws IOException {
         int groupIdLen = buffer.getInt();
         byte[] groupIdBytes = new byte[groupIdLen];
         buffer.get(groupIdBytes);
@@ -140,19 +165,17 @@ public class MiniKafkaServer {
 
         int partitionId = buffer.getInt();
 
-        // 2. Look it up
         long currentOffset = groupCoordinator.fetchOffset(groupId, topic, partitionId);
 
-        // 3. Send it back (8 bytes for a long)
         ByteBuffer responseBuffer = ByteBuffer.allocate(8);
         responseBuffer.putLong(currentOffset);
         responseBuffer.flip();
         while (responseBuffer.hasRemaining()) {
-          clientChannel.write(responseBuffer);
+            clientChannel.write(responseBuffer);
         }
+    }
 
-      } else if (apiKey == RequestCodes.COMMIT_OFFSET) {
-        // 1. Read the request: GroupID, Topic, PartitionID, Offset
+    private void handleCommitOffsetRequest(ByteBuffer buffer, SocketChannel clientChannel) throws IOException {
         int groupIdLen = buffer.getInt();
         byte[] groupIdBytes = new byte[groupIdLen];
         buffer.get(groupIdBytes);
@@ -166,19 +189,17 @@ public class MiniKafkaServer {
         int partitionId = buffer.getInt();
         long offset = buffer.getLong();
 
-        // 2. Save it
         groupCoordinator.commitOffset(groupId, topic, partitionId, offset);
 
-        // 3. Send a simple 1-byte success acknowledgment
         ByteBuffer responseBuffer = ByteBuffer.allocate(1);
         responseBuffer.put((byte) 1);
         responseBuffer.flip();
         while (responseBuffer.hasRemaining()) {
-          clientChannel.write(responseBuffer);
+            clientChannel.write(responseBuffer);
         }
+    }
 
-      } else if (apiKey == RequestCodes.JOIN_GROUP) {
-        // 1. Read Topic, Group, and Consumer ID
+    private void handleJoinGroupRequest(ByteBuffer buffer, SocketChannel clientChannel) throws IOException {
         int topicLen = buffer.getInt();
         byte[] topicBytes = new byte[topicLen];
         buffer.get(topicBytes);
@@ -194,32 +215,21 @@ public class MiniKafkaServer {
         buffer.get(consumerIdBytes);
         String consumerId = new String(consumerIdBytes);
 
-        // 2. Register with Coordinator (Assuming 3 partitions for now)
         int assignedPartition = groupCoordinator.registerConsumer(groupId, topic, consumerId, 3);
 
-        // 3. Reply with the assigned partition ID (4 bytes)
         ByteBuffer responseBuffer = ByteBuffer.allocate(4);
         responseBuffer.putInt(assignedPartition);
         responseBuffer.flip();
         while (responseBuffer.hasRemaining()) {
-          clientChannel.write(responseBuffer);
+            clientChannel.write(responseBuffer);
         }
-      } else {
-        System.err.println("Unknown API Key: " + apiKey);
-      }
-
-    } catch (Exception e) {
-      System.err.println("Failed to process request: " + e.getMessage());
-      e.printStackTrace();
-      buffer.clear();
     }
-  }
 
-  public void stop() throws IOException {
-    isRunning = false;
-    selector.wakeup();
-    if (serverSocketChannel != null) {
-      serverSocketChannel.close();
+    public void stop() throws IOException {
+        isRunning = false;
+        selector.wakeup();
+        if (serverSocketChannel != null) {
+            serverSocketChannel.close();
+        }
     }
-  }
 }
