@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import com.minikafka.common.model.LogRecord;
+import com.minikafka.common.utils.DefaultPartitioner;
 
 public class TopicManager {
 
@@ -42,10 +43,21 @@ public class TopicManager {
     }
 
     public LogRecord fetchRecord(String topic, int partitionId, long offset) {
-        Partition partition = topics.get(topic).get(partitionId);
-        if (partition != null) {
-            return partition.fetchRecord(offset);
+        // 1. Fetch the list safely without chaining .get()
+        List<Partition> topicPartitions = topics.get(topic);
+        
+        // 2. If topic doesn't exist yet, gracefully return null (Consumer will just sleep and retry)
+        if (topicPartitions == null) {
+            return null;
         }
-        return null;
+        
+        // 3. If partitionId is out of bounds, gracefully return null
+        if (partitionId < 0 || partitionId >= topicPartitions.size()) {
+            return null;
+        }
+        
+        // 4. Safely get the specific partition and fetch the data
+        Partition partition = topicPartitions.get(partitionId);
+        return partition.fetchRecord(offset);
     }
 }

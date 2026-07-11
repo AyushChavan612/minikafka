@@ -1,0 +1,8 @@
+**Implement the queue based feature for assigning the partitions in GroupCordinator.java**
+
+High-Level Consumer API (Offset Tracking): Building the internal __consumer_offsets topic so the Broker tracks where each client left off, allowing the consumer to just call .poll() without knowing its offset.
+
+Message Batching: Right now, your fetch returns exactly one record. Real Kafka fetches a chunk of bytes (e.g., "give me up to 1MB of data starting at offset 1") to reduce network round-trips.
+
+Data Retention Policies: A background thread (a "Janitor") that automatically deletes old .log and .index files after they reach a certain size or age (like 7 days).
+
