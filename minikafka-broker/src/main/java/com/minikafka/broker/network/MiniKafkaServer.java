@@ -99,6 +99,9 @@ public class MiniKafkaServer {
                 case RequestCodes.JOIN_GROUP:
                     handleJoinGroupRequest(buffer, clientChannel);
                     break;
+                case RequestCodes.HEARTBEAT:                 
+                    handleHeartbeatRequest(buffer);       
+                    break;
                 default:
                     System.err.println("Unknown API Key: " + apiKey);
             }
@@ -223,6 +226,26 @@ public class MiniKafkaServer {
         while (responseBuffer.hasRemaining()) {
             clientChannel.write(responseBuffer);
         }
+    }
+
+    private void handleHeartbeatRequest(ByteBuffer buffer) {
+        int topicLen = buffer.getInt();
+        byte[] topicBytes = new byte[topicLen];
+        buffer.get(topicBytes);
+        String topic = new String(topicBytes);
+
+        int groupLen = buffer.getInt();
+        byte[] groupBytes = new byte[groupLen];
+        buffer.get(groupBytes);
+        String groupId = new String(groupBytes);
+
+        int consumerIdLen = buffer.getInt();
+        byte[] consumerIdBytes = new byte[consumerIdLen];
+        buffer.get(consumerIdBytes);
+        String consumerId = new String(consumerIdBytes);
+
+        // Tell the coordinator this consumer is still alive!
+        groupCoordinator.recordHeartbeat(groupId, topic, consumerId);
     }
 
     public void stop() throws IOException {

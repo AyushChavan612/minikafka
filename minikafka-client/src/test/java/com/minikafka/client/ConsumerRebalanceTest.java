@@ -60,3 +60,4 @@ public class ConsumerRebalanceTest {
         System.out.println("--- REBALANCE TEST PASSED ---");
     }
 }
+

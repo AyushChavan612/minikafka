@@ -29,6 +29,7 @@ public class DefaultPartitionerTest {
         assertTrue(partitionForKey2 >= 0 && partitionForKey2 < numPartitions, "Partition ID out of bounds!");
     }
 
+      
     @Test
     void testRoundRobinNoKey() {
         System.out.println("--- TESTING ROUND-ROBIN (NULL KEY) ---");

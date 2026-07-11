@@ -1,14 +1,4 @@
-Look at what you just built from scratch:
-Custom Binary Protocol: You are efficiently serializing and deserializing raw bytes over TCP sockets using Java NIO, entirely bypassing bloated frameworks like JSON or HTTP.
-
-Write-Ahead Log (WAL): You are appending raw data directly to a binary .log file on disk—exactly how real distributed databases manage durability.
-
-Custom Database Index: You built a 16-byte segmented .index file and wrote a robust binary search algorithm that survives partial socket reads to achieve lightning-fast disk lookups.
-
-Low-Level Consumer: Your client can explicitly connect, target a specific partition, and extract the exact byte payload without scanning the whole file.
-
-What is still left to implement? (The Future Roadmap)
-While this specific feature branch is complete, a full-scale Kafka clone has a few higher-level features you can tackle next when you are ready to scale the architecture:
+**Implement the queue based feature for assigning the partitions in GroupCordinator.java**
 
 High-Level Consumer API (Offset Tracking): Building the internal __consumer_offsets topic so the Broker tracks where each client left off, allowing the consumer to just call .poll() without knowing its offset.
 

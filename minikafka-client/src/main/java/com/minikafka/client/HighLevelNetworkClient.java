@@ -152,6 +152,27 @@ public class HighLevelNetworkClient {
         return response.getInt();
     }
 
+    public void sendHeartbeat(String topic, String groupId, String consumerId) throws IOException {
+        byte[] topicBytes = topic.getBytes();
+        byte[] groupBytes = groupId.getBytes();
+        byte[] consumerBytes = consumerId.getBytes();
+
+        ByteBuffer request = ByteBuffer.allocate(14 + topicBytes.length + groupBytes.length + consumerBytes.length);
+        request.putShort(RequestCodes.HEARTBEAT); // API Key 6
+        request.putInt(topicBytes.length);
+        request.put(topicBytes);
+        request.putInt(groupBytes.length);
+        request.put(groupBytes);
+        request.putInt(consumerBytes.length);
+        request.put(consumerBytes);
+
+        request.flip();
+        while (request.hasRemaining()) {
+            socketChannel.write(request);
+        }
+        System.out.println("[CLIENT] Sent heartbeat for Group: " + groupId + ", Consumer: " + consumerId + ", Topic: " + topic);
+    }
+
     public void close() throws IOException {
         if (socketChannel != null && socketChannel.isOpen()) {
             try {
