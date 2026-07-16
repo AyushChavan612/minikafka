@@ -1,8 +1,7 @@
-**Implement the queue based feature for assigning the partitions in GroupCordinator.java**
+Consumer Fetch Batching: Right now, your Consumer asks for Offset 1, gets it, then asks for Offset 2. The network overhead is massive. The Broker needs to take a starting offset and read sequentially from the disk until it fills a 1MB memory buffer, then send that entire chunk over the wire at once.
 
-High-Level Consumer API (Offset Tracking): Building the internal __consumer_offsets topic so the Broker tracks where each client left off, allowing the consumer to just call .poll() without knowing its offset.
+Producer Batching (The Linger Algorithm): The Producer currently fires a TCP request for every single send() call. A real client buffers messages in memory for a few milliseconds (or until a batch size limit is reached) and flushes them to the Broker in one massive network packet.
 
-Message Batching: Right now, your fetch returns exactly one record. Real Kafka fetches a chunk of bytes (e.g., "give me up to 1MB of data starting at offset 1") to reduce network round-trips.
+Log Segmentation & Retention: Right now, your system-events-0.log file will grow infinitely until it completely consumes your shared Windows/Ubuntu hard drive partition. You need to segment the log into chunks (e.g., rolling over to a new file every 10MB) so a Janitor thread can safely delete the oldest segments without locking up the active write file.
 
-Data Retention Policies: A background thread (a "Janitor") that automatically deletes old .log and .index files after they reach a certain size or age (like 7 days).
 

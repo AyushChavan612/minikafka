@@ -1,7 +1,8 @@
 package com.minikafka.client;
 
-import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+
+import org.junit.jupiter.api.Test;
 
 public class MiniKafkaProducerTest {
 

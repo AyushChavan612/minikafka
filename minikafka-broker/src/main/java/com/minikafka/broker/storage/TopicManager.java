@@ -60,4 +60,20 @@ public class TopicManager {
         Partition partition = topicPartitions.get(partitionId);
         return partition.fetchRecord(offset);
     }
+
+    public void appendToPartition(String topic, int partitionId, String key, String payload) {
+        // 1. Ensure the topic exists in memory
+        getOrCreateTopic(topic);
+
+        // 2. Fetch the partitions for this topic
+        java.util.List<Partition> partitions = topics.get(topic);
+
+        // 3. Safety check, then hand the data off to that specific partition object
+        if (partitionId >= 0 && partitionId < partitions.size()) {
+            Partition targetPartition = partitions.get(partitionId);
+            targetPartition.append(key, payload);
+        } else {
+            System.err.println("Broker Error: Producer requested invalid partition ID: " + partitionId);
+        }
+    }
 }

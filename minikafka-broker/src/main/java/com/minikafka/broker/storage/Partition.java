@@ -21,7 +21,7 @@ public class Partition {
     this.currentOffset = new AtomicLong(0);
 
     try {
-      Path logDirectory = Paths.get("/home/pacforever/Documents/minikafka-logs");
+      Path logDirectory = Paths.get("/mnt/f/ubuntu stuff/minikafka-logs");
       if (!Files.exists(logDirectory)) {
         Files.createDirectories(logDirectory);
       }

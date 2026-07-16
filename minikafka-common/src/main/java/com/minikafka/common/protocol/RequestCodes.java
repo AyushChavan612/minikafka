@@ -7,4 +7,5 @@ public class RequestCodes {
     public static final short COMMIT_OFFSET = 4; // "I successfully read up to offset X."
     public static final short JOIN_GROUP = 5;
     public static final short HEARTBEAT = 6;
+    public static final short PRODUCE_BATCH = 7;
 }

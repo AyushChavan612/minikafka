@@ -22,10 +22,12 @@ public class MiniKafkaServer {
     private boolean isRunning;
     private final TopicManager topicManager;
     private final GroupCoordinator groupCoordinator;
+    private final int numPartitions;
 
-    public MiniKafkaServer(int port) {
+    public MiniKafkaServer(int port, int numPartitions) {
         this.port = port;
-        this.topicManager = new TopicManager(3);
+        this.numPartitions = numPartitions;
+        this.topicManager = new TopicManager(numPartitions);
         this.groupCoordinator = new GroupCoordinator();
     }
 
@@ -60,7 +62,7 @@ public class MiniKafkaServer {
         }
     }
 
-    private void acceptClient(SelectionKey key) throws IOException {
+   private void acceptClient(SelectionKey key) throws IOException {
         ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
         SocketChannel clientChannel = serverChannel.accept();
         clientChannel.configureBlocking(false);
@@ -68,39 +70,81 @@ public class MiniKafkaServer {
         System.out.println("Connected: " + clientChannel.getRemoteAddress());
     }
 
+    private boolean readFully(SocketChannel clientChannel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            int bytesRead = clientChannel.read(buffer);
+            if (bytesRead == -1) {
+                return false; // Client disconnected
+            }
+            if (bytesRead == 0) {
+                // Wait 1ms for the rest of the chopped up TCP packets to arrive
+                try {
+                    Thread.sleep(1); 
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+        return true;
+    }
+
     private void readClientData(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
-        ByteBuffer buffer = ByteBuffer.allocate(1024);
-        int bytesRead = clientChannel.read(buffer);
 
-        if (bytesRead == -1) {
-            System.out.println("Disconnected: " + clientChannel.getRemoteAddress());
-            clientChannel.close();
-            key.cancel();
-            return;
-        }
-
-        buffer.flip();
         try {
-            short apiKey = buffer.getShort();
+            ByteBuffer sizeBuffer = ByteBuffer.allocate(4);
+            if (!readFully(clientChannel, sizeBuffer)) {
+                System.out.println("Disconnected: " + clientChannel.getRemoteAddress());
+                clientChannel.close();
+                key.cancel();
+                return;
+            }
+
+            sizeBuffer.flip();
+            int messageSize = sizeBuffer.getInt();
+
+            // Safety Check for bad data
+            if (messageSize <= 0 || messageSize > 10 * 1024 * 1024) { 
+                System.err.println("Invalid message size received: " + messageSize);
+                clientChannel.close();
+                key.cancel();
+                return;
+            }
+
+            // 2. Allocate exact memory for the Payload and wait for everything!
+            ByteBuffer payloadBuffer = ByteBuffer.allocate(messageSize);
+            if (!readFully(clientChannel, payloadBuffer)) {
+                System.out.println("Disconnected during payload collection: " + clientChannel.getRemoteAddress());
+                clientChannel.close();
+                key.cancel();
+                return;
+            }
+
+            payloadBuffer.flip();
+
+            // 3. Now we safely unpack the API key and route it
+            short apiKey = payloadBuffer.getShort();
             switch (apiKey) {
                 case RequestCodes.PRODUCE:
-                    handleProduceRequest(buffer);
+                    handleProduceRequest(payloadBuffer);
+                    break;
+                case RequestCodes.PRODUCE_BATCH:             
+                    handleProduceBatchRequest(payloadBuffer);        
                     break;
                 case RequestCodes.FETCH:
-                    handleFetchRequest(buffer, clientChannel);
+                    handleFetchRequest(payloadBuffer, clientChannel);
                     break;
                 case RequestCodes.FETCH_OFFSET:
-                    handleFetchOffsetRequest(buffer, clientChannel);
+                    handleFetchOffsetRequest(payloadBuffer, clientChannel);
                     break;
                 case RequestCodes.COMMIT_OFFSET:
-                    handleCommitOffsetRequest(buffer, clientChannel);
+                    handleCommitOffsetRequest(payloadBuffer, clientChannel);
                     break;
                 case RequestCodes.JOIN_GROUP:
-                    handleJoinGroupRequest(buffer, clientChannel);
+                    handleJoinGroupRequest(payloadBuffer, clientChannel);
                     break;
                 case RequestCodes.HEARTBEAT:                 
-                    handleHeartbeatRequest(buffer);       
+                    handleHeartbeatRequest(payloadBuffer);        
                     break;
                 default:
                     System.err.println("Unknown API Key: " + apiKey);
@@ -109,7 +153,8 @@ public class MiniKafkaServer {
         } catch (Exception e) {
             System.err.println("Failed to process request: " + e.getMessage());
             e.printStackTrace();
-            buffer.clear();
+            clientChannel.close();
+            key.cancel();
         }
     }
 
@@ -120,6 +165,45 @@ public class MiniKafkaServer {
         System.out.println("--- INCOMING PRODUCE REQUEST ---");
         System.out.println("Topic: " + record.topic);
         topicManager.routeRecord(record.topic, record.key, record.payload);
+    }
+
+    private void handleProduceBatchRequest(ByteBuffer buffer) {
+        System.out.println("\n--- INCOMING PRODUCE BATCH REQUEST ---");
+
+        // 1. Read Topic
+        int topicLen = buffer.getInt();
+        byte[] topicBytes = new byte[topicLen];
+        buffer.get(topicBytes);
+        String topic = new String(topicBytes);
+
+        // 2. Read Routing Info
+        int partitionId = buffer.getInt();
+        int recordCount = buffer.getInt();
+
+        System.out.printf("Topic: %s | Partition: %d | Batch Size: %d messages%n", topic, partitionId, recordCount);
+
+        // 3. Loop through the batch and unpack every message!
+        for (int i = 0; i < recordCount; i++) {
+            
+            // Unpack Key
+            int keyLen = buffer.getInt();
+            String key = null;
+            if (keyLen > 0) {
+                byte[] keyBytes = new byte[keyLen];
+                buffer.get(keyBytes);
+                key = new String(keyBytes);
+            }
+
+            // Unpack Payload
+            int payloadLen = buffer.getInt();
+            byte[] payloadBytes = new byte[payloadLen];
+            buffer.get(payloadBytes);
+            String payload = new String(payloadBytes);
+
+            // 4. Send directly to the disk without recalculating the partition!
+            topicManager.appendToPartition(topic, partitionId, key, payload);
+        }
+        System.out.println("--- BATCH SUCCESSFULLY WRITTEN TO DISK ---");
     }
 
     private void handleFetchRequest(ByteBuffer buffer, SocketChannel clientChannel) throws IOException {

@@ -45,7 +45,7 @@ public class GroupCoordinator {
         this.activeConsumers = new ConcurrentHashMap<>();
         this.availablePartitions = new ConcurrentHashMap<>();
         
-        this.offsetLogPath = Paths.get("/home/pacforever/Documents/minikafka-logs/__consumer_offsets.txt");
+        this.offsetLogPath = Paths.get("/mnt/f/ubuntu stuff/minikafka-logs/__consumer_offsets.txt");
 
         try {
             if (!Files.exists(offsetLogPath)) {

@@ -37,6 +37,45 @@ public class HighLevelNetworkClient {
         }
     }
 
+   public void sendProduceBatchRequest(String topic, int partitionId, com.minikafka.model.RecordBatch batch) throws IOException {
+        byte[] topicBytes = topic != null ? topic.getBytes() : new byte[0];
+        
+        java.util.List<String> keys = batch.getKeys();
+        java.util.List<byte[]> payloads = batch.getPayloads();
+        int recordCount = payloads.size();
+
+        int payloadSize = 14 + topicBytes.length; 
+        
+        for (int i = 0; i < recordCount; i++) {
+            payloadSize += 4 + keys.get(i).getBytes().length;
+            payloadSize += 4 + payloads.get(i).length;
+        }
+
+        ByteBuffer buffer = ByteBuffer.allocate(4 + payloadSize);
+        buffer.putInt(payloadSize);
+
+        buffer.putShort(RequestCodes.PRODUCE_BATCH);
+        buffer.putInt(topicBytes.length);
+        if (topicBytes.length > 0) buffer.put(topicBytes);
+        buffer.putInt(partitionId);
+        buffer.putInt(recordCount);
+
+        for (int i = 0; i < recordCount; i++) {
+            byte[] keyBytes = keys.get(i).getBytes();
+            buffer.putInt(keyBytes.length);
+            if (keyBytes.length > 0) buffer.put(keyBytes);
+
+            byte[] payloadBytes = payloads.get(i);
+            buffer.putInt(payloadBytes.length);
+            if (payloadBytes.length > 0) buffer.put(payloadBytes);
+        }
+
+        buffer.flip();
+        while (buffer.hasRemaining()) {
+            socketChannel.write(buffer);
+        }
+    }
+
     // --- FETCH DATA API (Used by both consumers) ---
     public String sendFetchRequest(String topic, int partitionId, long offset) throws IOException {
         byte[] topicBytes = topic != null ? topic.getBytes() : new byte[0];
