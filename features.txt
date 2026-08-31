@@ -1,8 +1,21 @@
-**Implement the queue based feature for assigning the partitions in GroupCordinator.java**
+2. Distributed Replication (Leader / Follower)Your current architecture is a highly optimized, but single-node, server.The Next Step: Before adding a web API, you need to make two brokers talk to each other.How to do it: Spin up Broker A (Port 9092) and Broker B (Port 9093). When Broker A receives a PRODUCE request, it must act as a TCP client and replicate those bytes to Broker B before acknowledging the write. This proves you understand distributed consensus and fault tolerance.
 
-High-Level Consumer API (Offset Tracking): Building the internal __consumer_offsets topic so the Broker tracks where each client left off, allowing the consumer to just call .poll() without knowing its offset.
+3. The Control Plane (Spring Boot)Only after replication is working should you add the Spring Boot microservices. You will wrap your cluster in a REST API to handle administrative tasks like dynamically updating the NumberOfPartitions singleton or querying the GroupCoordinator for consumer lag.  You have built an absolute beast of an engine here, complete with custom length-prefixed binary framing and xxHash32 deterministic routing.  
 
-Message Batching: Right now, your fetch returns exactly one record. Real Kafka fetches a chunk of bytes (e.g., "give me up to 1MB of data starting at offset 1") to reduce network round-trips.
 
-Data Retention Policies: A background thread (a "Janitor") that automatically deletes old .log and .index files after they reach a certain size or age (like 7 days).
+
+Functional Requirements : 
+->we will get in input that how many brokers are needed and partitions are needed
+->create a mapping of partitions and brokers and start all brokers and provide them 
+   the mapping and their partition and also send this mapping to producers along with consumers
+->Brokers will receive the message , write it and pass message to others to copy it
+->Consumers will get mapping of partitions and broker according to get they will ask for 
+   message
+->If a broker dies other one should take its position and if send new map requested by consumer 
+   and also to producer
+-> Also we have to manage the replication factor
+
+Non Functional Requirements :
+-> We should able to manage unequal no. of broker and partitions
+->Heart beat detection to check whether the broker is alive or dead
 

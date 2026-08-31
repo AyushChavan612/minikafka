@@ -10,6 +10,7 @@ import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import com.minikafka.common.protocol.DataDecoder;
 import com.minikafka.common.protocol.RequestCodes;
+import com.minikafka.broker.cluster.ClusterManager;
 import com.minikafka.broker.consumer.GroupCoordinator;
 import com.minikafka.broker.storage.TopicManager;
 import com.minikafka.common.model.LogRecord;
@@ -17,16 +18,24 @@ import com.minikafka.common.model.LogRecord;
 public class MiniKafkaServer {
 
     private final int port;
+    private final int numPartitions;
+    private final int numBrokers;
+    private final int replicationFactor;
     private Selector selector;
     private ServerSocketChannel serverSocketChannel;
     private boolean isRunning;
     private final TopicManager topicManager;
     private final GroupCoordinator groupCoordinator;
+    private final ClusterManager clusterManager;
 
-    public MiniKafkaServer(int port) {
+  public MiniKafkaServer(int brokerId, int port, int numPartitions, int numBrokers, int replicationFactor, String controllerAddress) {
         this.port = port;
-        this.topicManager = new TopicManager(3);
+        this.numPartitions = numPartitions;
+        this.numBrokers = numBrokers;
+        this.replicationFactor = replicationFactor;
+        this.topicManager = new TopicManager(numPartitions); 
         this.groupCoordinator = new GroupCoordinator();
+        this.clusterManager = new ClusterManager(brokerId, port, controllerAddress);
     }
 
     public void start() throws IOException {
@@ -38,6 +47,7 @@ public class MiniKafkaServer {
         isRunning = true;
 
         System.out.println("Broker listening on port " + port);
+      clusterManager.startup(numPartitions, numBrokers, replicationFactor);
 
         while (isRunning) {
             selector.select();
@@ -101,6 +111,9 @@ public class MiniKafkaServer {
                     break;
                 case RequestCodes.HEARTBEAT:                 
                     handleHeartbeatRequest(buffer);       
+                    break;
+                case RequestCodes.REGISTER_BROKER: 
+                    clusterManager.handleIncomingWorkerRegistration(buffer, clientChannel);
                     break;
                 default:
                     System.err.println("Unknown API Key: " + apiKey);
