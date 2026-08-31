@@ -15,10 +15,10 @@ public class ClusterManager {
     private final boolean isController;
     
     // The Master Map: Partition ID -> List of Broker IDs (Index 0 is Leader)
-    private Map<Integer, List<Integer>> clusterMap = new HashMap<>();
+    private volatile Map<Integer, List<Integer>> clusterMap = new HashMap<>();
 
     // FIX #2: The Address Book mapping permanent Broker ID -> Current Network Port
-    private Map<Integer, Integer> activeBrokers = new HashMap<>();
+    private Map<Integer, Integer> activeBrokers = new ConcurrentHashMap<>();
 
     private SocketChannel controllerChannel;
 
@@ -127,9 +127,9 @@ public class ClusterManager {
             }
 
             // Revert back to non-blocking for normal async operations
-            this.controllerChannel.configureBlocking(false);
+            // this.controllerChannel.configureBlocking(false);
             startHeartbeatThread();
-            
+            startControllerListenerThread();
         } catch (IOException e) {
             System.err.println("[WORKER FATAL] Failed to connect to controller: " + e.getMessage());
             System.exit(1); 
@@ -254,29 +254,32 @@ public class ClusterManager {
         // System.out.println("[CONTROLLER] Thump-thump. Received heartbeat from Broker " + workerId);
     }
 
-    private void handleBrokerFailure(int deadBrokerId) {
-        // 1. Remove from all registries
+   private void handleBrokerFailure(int deadBrokerId) {
         activeBrokers.remove(deadBrokerId);
         lastHeartbeatTimestamp.remove(deadBrokerId);
         workerChannels.remove(deadBrokerId);
         
-        // 2. Rebalance the cluster map (Leader Election)
+        // 2. Rebalance the cluster map (Thread-Safe Copying)
         for (Map.Entry<Integer, List<Integer>> entry : clusterMap.entrySet()) {
-            List<Integer> replicas = entry.getValue();
+            List<Integer> oldReplicas = entry.getValue();
             
-            if (replicas.contains(deadBrokerId)) {
-                replicas.remove(Integer.valueOf(deadBrokerId)); // Remove dead broker
+            if (oldReplicas.contains(deadBrokerId)) {
+                // BUG FIX: Create a brand new list instead of modifying the old one
+                List<Integer> newReplicas = new ArrayList<>(oldReplicas);
+                newReplicas.remove(Integer.valueOf(deadBrokerId)); 
                 
-                if (replicas.isEmpty()) {
+                // Put the new safe list back into the map
+                clusterMap.put(entry.getKey(), newReplicas);
+                
+                if (newReplicas.isEmpty()) {
                     System.err.println("[CRITICAL] Partition " + entry.getKey() + " has lost all replicas! Data offline.");
                 } else {
                     System.out.printf("[CONTROLLER] Partition %d rebalanced. New Leader: Broker %d\n", 
-                        entry.getKey(), replicas.get(0));
+                        entry.getKey(), newReplicas.get(0));
                 }
             }
         }
         
-        // 3. Push the updated map to all surviving workers
         broadcastClusterMap();
     }
 
@@ -302,13 +305,17 @@ public class ClusterManager {
         }
         responseBuffer.flip();
 
-        for (Map.Entry<Integer, SocketChannel> entry : workerChannels.entrySet()) {
+      for (Map.Entry<Integer, SocketChannel> entry : workerChannels.entrySet()) {
             try {
                 ByteBuffer copy = responseBuffer.duplicate(); 
                 while (copy.hasRemaining()) {
-                    entry.getValue().write(copy);
+                    // BUG FIX: Handle non-blocking 0-byte writes
+                    int bytesWritten = entry.getValue().write(copy);
+                    if (bytesWritten == 0) {
+                        Thread.sleep(10); // Wait for the OS to send data over the network
+                    }
                 }
-            } catch (IOException e) {
+            } catch (Exception e) {
                 System.err.println("[CONTROLLER] Failed to send map update to Broker " + entry.getKey());
             }
         }
@@ -343,5 +350,42 @@ public class ClusterManager {
                 entry.getValue().get(0), 
                 entry.getValue().subList(1, entry.getValue().size()));
         }
+    }
+
+    private void startControllerListenerThread() {
+        Thread listenerThread = new Thread(() -> {
+            ByteBuffer buffer = ByteBuffer.allocate(1024);
+            
+            while (true) {
+                try {
+                    buffer.clear();
+                    // This will block quietly until the Controller sends something
+                    int bytesRead = this.controllerChannel.read(buffer); 
+                    
+                    if (bytesRead == -1) {
+                        System.err.println("[WORKER FATAL] Controller disconnected!");
+                        break;
+                    }
+                    
+                    buffer.flip();
+                    
+                    // Check if the packet has our 2-byte header
+                    if (buffer.remaining() >= 2) {
+                        short requestCode = buffer.getShort();
+                        
+                        if (requestCode == RequestCodes.CLUSTER_MAP_UPDATE) {
+                            handleDynamicMapUpdate(buffer);
+                        }
+                    }
+                    
+                } catch (IOException e) {
+                    System.err.println("[WORKER] Connection to Controller broken: " + e.getMessage());
+                    break;
+                }
+            }
+        });
+        
+        listenerThread.setDaemon(true);
+        listenerThread.start();
     }
 }
