@@ -8,4 +8,6 @@ public class RequestCodes {
     public static final short JOIN_GROUP = 5;
     public static final short HEARTBEAT = 6;
     public static final short REGISTER_BROKER = 7;
+    public static final short BROKER_HEARTBEAT = 8;
+    public static final short CLUSTER_MAP_UPDATE = 9;
 }

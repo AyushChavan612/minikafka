@@ -115,6 +115,14 @@ public class MiniKafkaServer {
                 case RequestCodes.REGISTER_BROKER: 
                     clusterManager.handleIncomingWorkerRegistration(buffer, clientChannel);
                     break;
+                // Route Broker Heartbeats to Controller
+                case RequestCodes.BROKER_HEARTBEAT:
+                    clusterManager.handleBrokerHeartbeat(buffer);
+                    break;
+            // Route Dynamic Map Updates to Worker
+                case RequestCodes.CLUSTER_MAP_UPDATE:
+                    clusterManager.handleDynamicMapUpdate(buffer);
+                    break;
                 default:
                     System.err.println("Unknown API Key: " + apiKey);
             }
