@@ -19,3 +19,18 @@ Non Functional Requirements :
 -> We should able to manage unequal no. of broker and partitions
 ->Heart beat detection to check whether the broker is alive or dead
 
+
+
+Feature 1: Producer Routing & Storage Engine
+
+The Storage Fix: Right now, all brokers are trying to write to a hardcoded path (/home/pacforever). We need to make this dynamic so Broker 0 writes to /tmp/minikafka/broker-0, Broker 1 writes to /tmp/minikafka/broker-1, etc.
+
+Producer Map Request: The Producer can no longer just blindly send messages to port 9092. It must first ask the Controller for the clusterMap.
+
+Producer Routing: If the Producer wants to write to Partition 1, it looks at the map, sees that Broker 2 is the Leader, and opens a direct TCP connection to Broker 2 to send the message.
+
+Feature 2: Consumer Routing & Reading
+
+Consumer Map Request: Just like the Producer, the Consumer asks the Controller for the map.
+
+Targeted Reading: The Consumer connects directly to the Leader of the partition it wants to read from and pulls the data.

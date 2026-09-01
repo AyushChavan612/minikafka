@@ -55,16 +55,16 @@ public class ClusterManagerFailureTest {
         handleFailureMethod.setAccessible(true);
         handleFailureMethod.invoke(controller, 1);
 
-        // 3. Verify the Rebalance
+       // 3. Verify the Rebalance & Replenishment
         Map<Integer, List<Integer>> updatedMap = getClusterMap(controller);
         
-        // P0 had [0, 1]. Broker 1 died. It should shrink to just [0].
-        assertEquals(List.of(0), updatedMap.get(0));
+        // P0 had [0, 1]. Broker 1 died. Broker 2 was pulled in as standby.
+        assertEquals(List.of(0, 2), updatedMap.get(0));
         
-        // P1 had [1, 2]. Broker 1 was LEADER and died. Broker 2 MUST be promoted to Leader (index 0).
-        assertEquals(List.of(2), updatedMap.get(1));
+        // P1 had [1, 2]. Broker 1 died. Broker 2 promoted to leader, Broker 0 pulled in as standby.
+        assertEquals(List.of(2, 0), updatedMap.get(1));
         
-        // P2 had [2, 0]. Broker 1 wasn't involved, so it should remain untouched.
+        // P2 had [2, 0]. Broker 1 wasn't involved, so it remains untouched.
         assertEquals(List.of(2, 0), updatedMap.get(2));
 
         // 4. Verify Broker 1 was wiped from Address Book and Clocks
