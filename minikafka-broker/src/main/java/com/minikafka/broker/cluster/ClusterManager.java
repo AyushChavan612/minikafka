@@ -7,7 +7,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import lombok.Data;
 
+@Data
 public class ClusterManager {
     
     // Core Data Structures (Package-private so Services can access them)

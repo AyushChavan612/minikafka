@@ -35,6 +35,19 @@ public class HighLevelNetworkClient {
         while (buffer.hasRemaining()) {
             socketChannel.write(buffer);
         }
+
+        ByteBuffer response = ByteBuffer.allocate(1);
+        socketChannel.read(response);
+        response.flip();
+        
+        if (response.hasRemaining()) {
+            byte status = response.get();
+            if (status == 2) { 
+                throw new IOException("NOT_LEADER");
+            } else if (status != 1) {
+                throw new IOException("BROKER_ERROR");
+            }
+        }
     }
 
     // --- FETCH DATA API (Used by both consumers) ---
@@ -58,20 +71,25 @@ public class HighLevelNetworkClient {
         socketChannel.read(statusBuffer);
         statusBuffer.flip();
 
-        if (statusBuffer.hasRemaining() && statusBuffer.get() == 1) {
-            ByteBuffer lenBuffer = ByteBuffer.allocate(4);
-            socketChannel.read(lenBuffer);
-            lenBuffer.flip();
-            
-            ByteBuffer payloadBuffer = ByteBuffer.allocate(lenBuffer.getInt());
-            socketChannel.read(payloadBuffer);
-            payloadBuffer.flip();
+        if (statusBuffer.hasRemaining()) {
+            byte status = statusBuffer.get();
+            if (status == 2) {
+                throw new IOException("NOT_LEADER"); // Trigger the re-route
+            } else if (status == 1) {
+                ByteBuffer lenBuffer = ByteBuffer.allocate(4);
+                socketChannel.read(lenBuffer);
+                lenBuffer.flip();
+                
+                ByteBuffer payloadBuffer = ByteBuffer.allocate(lenBuffer.getInt());
+                socketChannel.read(payloadBuffer);
+                payloadBuffer.flip();
 
-            return new String(payloadBuffer.array());
+                return new String(payloadBuffer.array());
+            }
+            // If status is 0, we silently return null (no new data yet)
         }
         return null;
     }
-
     // --- OFFSET MANAGEMENT APIs ---
     public long fetchOffset(String groupId, String topic, int partitionId) throws IOException {
         byte[] groupBytes = groupId.getBytes();
@@ -171,6 +189,36 @@ public class HighLevelNetworkClient {
             socketChannel.write(request);
         }
         System.out.println("[CLIENT] Sent heartbeat for Group: " + groupId + ", Consumer: " + consumerId + ", Topic: " + topic);
+    }
+
+    // --- METADATA API ---
+    public java.util.Map<Integer, Integer> fetchMetadata() throws IOException {
+        ByteBuffer request = ByteBuffer.allocate(2);
+        request.putShort(RequestCodes.FETCH_METADATA);
+        request.flip();
+        
+        while (request.hasRemaining()) {
+            socketChannel.write(request);
+        }
+
+        // 1. Read how many partitions exist
+        ByteBuffer header = ByteBuffer.allocate(4);
+        socketChannel.read(header);
+        header.flip();
+        int numPartitions = header.getInt();
+
+        // 2. Read the Leader Port for each partition
+        java.util.Map<Integer, Integer> partitionToPort = new java.util.HashMap<>();
+        for (int i = 0; i < numPartitions; i++) {
+            ByteBuffer entry = ByteBuffer.allocate(8); // PartitionID (4) + LeaderPort (4)
+            socketChannel.read(entry);
+            entry.flip();
+            
+            int partId = entry.getInt();
+            int leaderPort = entry.getInt();
+            partitionToPort.put(partId, leaderPort);
+        }
+        return partitionToPort;
     }
 
     public void close() throws IOException {
