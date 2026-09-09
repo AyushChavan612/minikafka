@@ -40,12 +40,13 @@ public class GroupCoordinator {
         }
     }
 
-    public GroupCoordinator() {
+    public GroupCoordinator(int brokerId) {
         this.groupOffsets = new ConcurrentHashMap<>();
         this.activeConsumers = new ConcurrentHashMap<>();
         this.availablePartitions = new ConcurrentHashMap<>();
         
-        this.offsetLogPath = Paths.get("/home/pacforever/Documents/minikafka-logs/__consumer_offsets.txt");
+        // FIX: Dynamic isolated directory per broker
+        this.offsetLogPath = Paths.get("/tmp/minikafka/broker-" + brokerId + "/logs/__consumer_offsets.txt");
 
         try {
             if (!Files.exists(offsetLogPath)) {

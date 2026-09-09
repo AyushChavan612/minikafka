@@ -9,7 +9,7 @@ public class GroupCoordinatorTestSecond {
     void testCommitAndRecovery() throws InterruptedException {
         System.out.println("--- STARTING BROKER SIMULATION 1 ---");
         // 1. Simulate Broker Startup
-        GroupCoordinator broker1 = new GroupCoordinator();
+        GroupCoordinator broker1 = new GroupCoordinator(99);
         
         String testGroup = "test-recovery-group";
         String testTopic = "test-topic";
@@ -33,7 +33,7 @@ public class GroupCoordinatorTestSecond {
         System.out.println("--- STARTING BROKER SIMULATION 2 ---");
         // 5. Simulate Broker Restart
         // Because we hardcoded the path, this will automatically read the file Broker 1 just wrote to!
-        GroupCoordinator broker2 = new GroupCoordinator();
+        GroupCoordinator broker2 = new GroupCoordinator(99);
         
         // 6. Verify it successfully loaded the offset back from the text file into the new RAM map
         long recoveredOffset = broker2.fetchOffset(testGroup, testTopic, partitionId);
