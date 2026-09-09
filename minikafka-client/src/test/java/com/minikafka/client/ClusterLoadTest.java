@@ -24,7 +24,7 @@ public class ClusterLoadTest {
         Set<String> expectedMessages = ConcurrentHashMap.newKeySet();
         
         AtomicInteger totalSent = new AtomicInteger(0);
-        AtomicInteger totalReceived = new AtomicInteger(0);
+        AtomicInteger totalReceived = new AtomicInteger(0);z
         AtomicInteger unexpectedOrDuplicate = new AtomicInteger(0);
         
         CountDownLatch producersDone = new CountDownLatch(numProducers);
